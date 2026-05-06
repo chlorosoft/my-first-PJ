@@ -43,27 +43,34 @@ function ensureAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
-// --- BGM (MML対応版) ---
+// --- BGM (MML対応・安定版) ---
 const NOTE_FREQ = { 'C':261.63,'D':293.66,'E':329.63,'F':349.23,'G':392.00,'A':440.00,'B':493.88 };
-function mmlToNotes(mml, baseOctave=4) {
-  return mml.trim().split(/\s+/).map(t => {
-    if(!t || t==='R') return null;
-    const m = t.match(/^([A-Ga-g])(\d)?(\d+)?$/);
-    if(!m) return null;
-    const [,n,o,d] = m;
-    let f = NOTE_FREQ[n.toUpperCase()] || 0;
-    if(o) f *= Math.pow(2, parseInt(o)-4);
-    const dur = d ? (4/parseInt(d)) : 1;
-    return {f, d: dur};
-  }).filter(Boolean);
+function mmlToNotes(mml) {
+  const tokens = mml.trim().split(/\s+/);
+  const notes = [];
+  let currentNote = null;
+  for (const t of tokens) {
+    if (!t || t === 'R') continue;
+    const noteMatch = t.match(/^([A-Ga-g])(\d)?$/);
+    if (noteMatch) { currentNote = noteMatch[1].toUpperCase(); continue; }
+    const durMatch = t.match(/^(\d+)$/);
+    if (durMatch && currentNote) {
+      const octave = noteMatch ? parseInt(noteMatch[2]) : 4;
+      let f = NOTE_FREQ[currentNote] || 0;
+      if (octave) f *= Math.pow(2, octave - 4);
+      notes.push({f, d: 4 / parseInt(durMatch[1])});
+      currentNote = null;
+    }
+  }
+  return notes;
 }
 
 let bgmPlaying = false;
 let bgmNodes = [];
 
-// MMLで定義（C4=真ん中のド, 8=8分音符, R=休符）
+// MML形式: 音符 オクターブ / 休符 R / 音符長(8=8分,4=4分)
 const melodyNotes = mmlToNotes("C4 8 D5 8 E5 4 G5 2 R4 C5 8 D5 8 E5 4 G5 2 A5 4 G5 4 E5 4 C5 4");
-const bassNotes   = mmlToNotes("C3 4 E3 4 G3 4 A3 4 C3 4 E3 4 G3 4 A3 4", 3);
+const bassNotes   = mmlToNotes("C3 4 E3 4 G3 4 A3 4 C3 4 E3 4 G3 4 A3 4");
 
 function stopBGM() {
   for (const n of bgmNodes) { try { n.stop(); } catch(e) {} }
@@ -75,6 +82,7 @@ function playBGM() {
   if (bgmPlaying) return;
   ensureAudio();
   bgmPlaying = true;
+  console.log('[BGM] Started | Melody:', melodyNotes.length, 'notes | Bass:', bassNotes.length);
 
   const bpm = 130;
   const beatDur = 60 / bpm;
@@ -103,7 +111,6 @@ function playBGM() {
       osc.start(t);
       osc.stop(t + dur);
       bgmNodes.push(osc);
-
       t += dur;
     }
     return t;
