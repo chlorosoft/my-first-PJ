@@ -48,18 +48,21 @@ const NOTE_FREQ = { 'C':261.63,'D':293.66,'E':329.63,'F':349.23,'G':392.00,'A':4
 function mmlToNotes(mml) {
   const tokens = mml.trim().split(/\s+/);
   const notes = [];
-  let currentNote = null;
+  let currentNoteName = null;
+  let currentOctave = 4;
   for (const t of tokens) {
     if (!t || t === 'R') continue;
     const noteMatch = t.match(/^([A-Ga-g])(\d)?$/);
-    if (noteMatch) { currentNote = noteMatch[1].toUpperCase(); continue; }
+    if (noteMatch) {
+      currentNoteName = noteMatch[1].toUpperCase();
+      if (noteMatch[2]) currentOctave = parseInt(noteMatch[2]);
+      continue;
+    }
     const durMatch = t.match(/^(\d+)$/);
-    if (durMatch && currentNote) {
-      const octave = noteMatch ? parseInt(noteMatch[2]) : 4;
-      let f = NOTE_FREQ[currentNote] || 0;
-      if (octave) f *= Math.pow(2, octave - 4);
+    if (durMatch && currentNoteName) {
+      let f = NOTE_FREQ[currentNoteName] || 0;
+      f *= Math.pow(2, currentOctave - 4);
       notes.push({f, d: 4 / parseInt(durMatch[1])});
-      currentNote = null;
     }
   }
   return notes;
@@ -68,9 +71,11 @@ function mmlToNotes(mml) {
 let bgmPlaying = false;
 let bgmNodes = [];
 
-// MML形式: 音符 オクターブ / 休符 R / 音符長(8=8分,4=4分)
 const melodyNotes = mmlToNotes("C4 8 D5 8 E5 4 G5 2 R4 C5 8 D5 8 E5 4 G5 2 A5 4 G5 4 E5 4 C5 4");
 const bassNotes   = mmlToNotes("C3 4 E3 4 G3 4 A3 4 C3 4 E3 4 G3 4 A3 4");
+
+const bossMelodyNotes = mmlToNotes("A4 8 A4 8 G4 8 F4 8 E4 4 D4 4 C4 2");
+const bossBassNotes   = mmlToNotes("A2 4 A2 4 E3 4 E3 4");
 
 function stopBGM() {
   for (const n of bgmNodes) { try { n.stop(); } catch(e) {} }
@@ -120,8 +125,9 @@ function playBGM() {
     if (!bgmPlaying) return;
     const now = audioCtx.currentTime + 0.1;
     let endT = now;
-    endT = schedulePhrase(now, melodyNotes, false);
-    schedulePhrase(now, bassNotes, true);
+    const isBoss = (typeof boss !== 'undefined' && boss && boss.alive);
+    endT = schedulePhrase(now, isBoss ? bossMelodyNotes : melodyNotes, false);
+    schedulePhrase(now, isBoss ? bossBassNotes : bassNotes, true);
     const loopDur = endT - now;
     bgmTimer = setTimeout(() => { if (bgmPlaying) loopBGM(); }, loopDur * 1000);
   }
@@ -186,8 +192,10 @@ function playStageClear() {
 }
 
 // --- Game State ---
-let monsters, bullets, explosions, player, gold, lives, level, gameOver, started;
+let monsters, bullets, explosions, player, gold, lives, level, gameOver, started, victory;
+let boss = null; // Added boss state
 const MONSTER_W = 32, MONSTER_H = 28;
+// ...
 const BULLET_W = 3, BULLET_H = 12;
 const PLAYER_SIZE = 40;
 
@@ -196,18 +204,38 @@ function init() {
   monsters = [];
   bullets = [];
   explosions = [];
-  const rows = 5;
-  const cols = 10;
-  const startX = (canvas.width - cols * (MONSTER_W + 12)) / 2;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      monsters.push({
-        x: startX + c * (MONSTER_W + 12),
-        y: 60 + r * (MONSTER_H + 16),
-        alive: true,
-        type: r < 1 ? 2 : r < 3 ? 1 : 0,
-        anim: Math.random() * Math.PI * 2,
-      });
+  boss = null; // Reset boss
+  const isBossWave = level % 3 === 0;
+
+  if (isBossWave) {
+    // Spawn Boss
+    boss = {
+      x: canvas.width / 2,
+      y: 50,
+      vy: 40, // Added vertical velocity
+      w: 80,
+      h: 60,
+      hp: 15 + level * 5,
+      maxHp: 15 + level * 5,
+      alive: true,
+      dir: 1,
+      anim: 0
+    };
+  } else {
+    // Regular wave
+    const rows = 5;
+    const cols = 10;
+    const startX = (canvas.width - cols * (MONSTER_W + 12)) / 2;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        monsters.push({
+          x: startX + c * (MONSTER_W + 12),
+          y: 60 + r * (MONSTER_H + 16),
+          alive: true,
+          type: r < 1 ? 2 : r < 3 ? 1 : 0,
+          anim: Math.random() * Math.PI * 2,
+        });
+      }
     }
   }
   updateSpeeds();
@@ -237,6 +265,7 @@ function startNewGame() {
   level = 1;
   lives = 3;
   gold = 0;
+  victory = false;
   init();
 }
 
@@ -251,7 +280,6 @@ function handleOverlayTap() {
   } else if (gameOver) {
     stopBGM();
     startNewGame();
-    gameOver = false;
     moveTimer = 0;
     shootTimer = 0;
     lastTime = 0;
@@ -373,6 +401,36 @@ function drawMonster(m) {
   ctx.fillRect(x + 20, y + 20 + bob, 6, 6);
 }
 
+function drawBoss(boss) {
+  const x = boss.x, y = boss.y;
+  const b = Math.sin(boss.anim) * 3;
+
+  // Body (Large dark purple blob)
+  ctx.fillStyle = '#4b0082';
+  ctx.beginPath();
+  ctx.arc(x, y + 20 + b, 40, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes (Large glowing eyes)
+  ctx.fillStyle = '#ff0000';
+  ctx.beginPath();
+  ctx.arc(x - 20, y + 10 + b, 10, 0, Math.PI * 2);
+  ctx.arc(x + 20, y + 10 + b, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(x - 18, y + 8 + b, 4, 0, Math.PI * 2);
+  ctx.arc(x + 18, y + 8 + b, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // HP Bar
+  ctx.fillStyle = '#333';
+  ctx.fillRect(x - 40, y - 50, 80, 8);
+  ctx.fillStyle = '#ff3330';
+  const hpWidth = (boss.hp / boss.maxHp) * 80;
+  ctx.fillRect(x - 40, y - 50, hpWidth, 8);
+}
+
 function drawWizard() {
   const x = player.x, y = player.y;
 
@@ -440,7 +498,8 @@ let dir = 1;
 function updateSpeeds() {
   const total = 50;
   const alive = monsters.filter(m => m.alive).length;
-  moveInterval = Math.max(0.08, 0.5 * (alive / total));
+  // レベルが上がるにつれて、移動間隔を短くしてスピードアップさせる
+  moveInterval = Math.max(0.05, 0.5 * (alive / total) - level * 0.02);
   shootInterval = Math.max(0.3, 1.5 - level * 0.1 - (total - alive) * 0.015);
 }
 
@@ -467,7 +526,18 @@ function update(dt) {
   if (moveTimer >= moveInterval) {
     moveTimer = 0;
     const alive = monsters.filter(m => m.alive);
-    if (alive.length === 0) { level++; init(); updateSpeeds(); playStageClear(); return; }
+    if (alive.length === 0 && !boss) {
+      if (level >= 9) {
+        gameOver = true;
+        victory = true;
+        return;
+      }
+      level++;
+      init();
+      updateSpeeds();
+      playStageClear();
+      return;
+    }
     let edge = false;
     for (const m of alive) {
       if ((dir > 0 && m.x + MONSTER_W >= canvas.width - 16) ||
@@ -484,6 +554,9 @@ function update(dt) {
   // Monster animation
   for (const m of monsters) m.anim += dt * 3;
 
+  // Boss animation
+  if (boss && boss.alive) boss.anim += dt * 2;
+
   // Monster shooting
   shootTimer += dt;
   if (shootTimer >= shootInterval) {
@@ -491,13 +564,51 @@ function update(dt) {
     spawnBullets();
   }
 
+  // Boss movement and attack
+  if (boss && boss.alive) {
+    boss.x += 100 * dir * dt;
+    boss.y += boss.vy * dt; // Apply vertical velocity
+
+    // Boundary check for horizontal movement
+    if (boss.x + boss.w/2 >= canvas.width - 16 || boss.x - boss.w/2 <= 16) {
+      dir *= -1;
+    }
+
+    // Boundary check for vertical movement
+    if (boss.y < 20 || boss.y > canvas.height - boss.h - 50) {
+      boss.vy *= -1; // Bounce vertically
+    }
+
+    boss.anim += dt * 3;
+
+    // Random boss attack: spread shot
+    if (Math.random() < 0.01) {
+      for (let i = -1; i <= 1; i++) {
+        bullets.push({
+          x: boss.x,
+          y: boss.y + boss.h/2,
+          alive: true,
+          player: false,
+          vx: i * 100
+        });
+      }
+    }
+
+    // Standard boss downward shot
+    if (Math.random() < 0.02) {
+       bullets.push({ x: boss.x, y: boss.y + boss.h, alive: true, player: false });
+    }
+  }
+
   // Bullet update
   for (const b of bullets) {
     if (!b.alive) continue;
     b.y += (b.player ? -400 : 200) * dt;
-    if (b.y < 0 || b.y > canvas.height) { b.alive = false; continue; }
+    if (b.vx) b.x += b.vx * dt; // Handle spread shot vx
+    if (b.y < 0 || b.y > canvas.height || b.x < 0 || b.x > canvas.width) { b.alive = false; continue; }
 
     if (b.player) {
+      // Check monsters
       for (const m of monsters) {
         if (!m.alive) continue;
         if (b.x >= m.x && b.x <= m.x + MONSTER_W && b.y >= m.y && b.y <= m.y + MONSTER_H) {
@@ -507,6 +618,29 @@ function update(dt) {
           explosions.push({ x: m.x + MONSTER_W/2, y: m.y + MONSTER_H/2, t: 0.3 });
           playEnemyHit();
           break;
+        }
+      }
+
+      // Check boss
+      if (boss && boss.alive && b.x >= boss.x - boss.w/2 && b.x <= boss.x + boss.w/2 && b.y >= boss.y && b.y <= boss.y + boss.h) {
+        boss.hp--;
+        b.alive = false;
+        explosions.push({ x: boss.x, y: boss.y + boss.h/2, t: 0.3 });
+        playEnemyHit();
+        if (boss.hp <= 0) {
+          boss.alive = false;
+          gold += 100;
+          if (level >= 9) {
+            gameOver = true;
+            victory = true;
+          } else {
+            setTimeout(() => {
+              level++;
+              init();
+              updateSpeeds();
+              playStageClear();
+            }, 500);
+          }
         }
       }
     } else {
@@ -719,6 +853,7 @@ function render(time = 0) {
   if (!started) return;
 
   for (const m of monsters) if (m.alive) drawMonster(m);
+  if (boss && boss.alive) drawBoss(boss);
   drawWizard();
 
   for (const b of bullets) {
@@ -794,15 +929,27 @@ function render(time = 0) {
   if (gameOver) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ff3333';
-    ctx.font = '48px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 20);
-    ctx.fillStyle = '#ffcc33';
-    ctx.font = '24px monospace';
-    ctx.fillText(`GOLD: ${gold}`, canvas.width/2, canvas.height/2 + 30);
-    ctx.font = '18px monospace';
-    ctx.fillText('CLICK TO RESTART', canvas.width/2, canvas.height/2 + 70);
+    if (victory) {
+      ctx.fillStyle = '#33ffcc';
+      ctx.font = '48px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('VICTORY!', canvas.width/2, canvas.height/2 - 20);
+      ctx.fillStyle = '#ffcc33';
+      ctx.font = '24px monospace';
+      ctx.fillText(`GOLD: ${gold}`, canvas.width/2, canvas.height/2 + 30);
+      ctx.font = '18px monospace';
+      ctx.fillText('CLICK TO RESTART', canvas.width/2, canvas.height/2 + 70);
+    } else {
+      ctx.fillStyle = '#ff3333';
+      ctx.font = '48px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 20);
+      ctx.fillStyle = '#ffcc33';
+      ctx.font = '24px monospace';
+      ctx.fillText(`GOLD: ${gold}`, canvas.width/2, canvas.height/2 + 30);
+      ctx.font = '18px monospace';
+      ctx.fillText('CLICK TO RESTART', canvas.width/2, canvas.height/2 + 70);
+    }
   }
 }
 
