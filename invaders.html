@@ -210,17 +210,19 @@ function init() {
 
   if (isBossWave) {
     // Spawn Boss
+    const isDragonBoss = level >= 9;
     boss = {
       x: canvas.width / 2,
       y: 50,
       vy: 40, // Added vertical velocity
-      w: 80,
-      h: 60,
-      hp: 15 + level * 5,
-      maxHp: 15 + level * 5,
+      w: isDragonBoss ? 100 : 80,
+      h: isDragonBoss ? 80 : 60,
+      hp: isDragonBoss ? 15 + level * 5 + 20 : 15 + level * 5,
+      maxHp: isDragonBoss ? 15 + level * 5 + 20 : 15 + level * 5,
       alive: true,
       dir: 1,
-      anim: 0
+      anim: 0,
+      isDragon: isDragonBoss
     };
   } else {
     // Regular wave
@@ -411,6 +413,21 @@ function drawBoss(boss) {
   const x = boss.x, y = boss.y;
   const b = Math.sin(boss.anim) * 3;
 
+  // HP Bar (drawn first so it appears behind)
+  const barW = boss.isDragon ? 100 : 80;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(x - barW / 2, y - 50, barW, 8);
+  ctx.fillStyle = '#ff3330';
+  const hpWidth = (boss.hp / boss.maxHp) * barW;
+  ctx.fillRect(x - barW / 2, y - 50, hpWidth, 8);
+
+  // Wave 9 boss = Dragon
+  if (boss.isDragon) {
+    drawDragon(x, y, b);
+    return;
+  }
+
+  // Regular boss
   // Body (Large dark purple blob)
   ctx.fillStyle = '#4b0082';
   ctx.beginPath();
@@ -428,13 +445,131 @@ function drawBoss(boss) {
   ctx.arc(x - 18, y + 8 + b, 4, 0, Math.PI * 2);
   ctx.arc(x + 18, y + 8 + b, 4, 0, Math.PI * 2);
   ctx.fill();
+}
 
-  // HP Bar
+function drawDragon(x, y, bob) {
+  const w = Math.sin(x * 0.05) * 5; // slight sway
+
+  // Wings (behind body)
+  const wingFlap = Math.sin(x * 0.08) * 15;
+  ctx.fillStyle = '#8B0000';
+  // Left wing
+  ctx.beginPath();
+  ctx.moveTo(x - 30, y + 10);
+  ctx.lineTo(x - 90, y - 40 + wingFlap);
+  ctx.lineTo(x - 70, y - 10 + wingFlap * 0.5);
+  ctx.lineTo(x - 80, y + 20 + wingFlap);
+  ctx.lineTo(x - 30, y + 20);
+  ctx.closePath();
+  ctx.fill();
+  // Right wing
+  ctx.beginPath();
+  ctx.moveTo(x + 30, y + 10);
+  ctx.lineTo(x + 90, y - 40 + wingFlap);
+  ctx.lineTo(x + 70, y - 10 + wingFlap * 0.5);
+  ctx.lineTo(x + 80, y + 20 + wingFlap);
+  ctx.lineTo(x + 30, y + 20);
+  ctx.closePath();
+  ctx.fill();
+
+  // Tail
+  ctx.strokeStyle = '#8B0000';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(x, y + 40);
+  ctx.quadraticCurveTo(x + w + 20, y + 60, x + w + 35, y + 55);
+  ctx.stroke();
+  // Tail spike
+  ctx.fillStyle = '#ff6600';
+  ctx.beginPath();
+  ctx.moveTo(x + w + 35, y + 55);
+  ctx.lineTo(x + w + 42, y + 50);
+  ctx.lineTo(x + w + 40, y + 62);
+  ctx.closePath();
+  ctx.fill();
+
+  // Body (large serpentine)
+  ctx.fillStyle = '#CC0000';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 15 + bob, 35, 45, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Belly scales
+  ctx.fillStyle = '#ffcc00';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 20 + bob, 18, 30, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Neck
+  ctx.fillStyle = '#CC0000';
+  ctx.beginPath();
+  ctx.ellipse(x, y - 25 + bob, 20, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#aa0000';
+  ctx.beginPath();
+  ctx.ellipse(x, y - 45 + bob, 25, 20, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Jaw
+  ctx.fillStyle = '#880000';
+  ctx.beginPath();
+  ctx.ellipse(x, y - 35 + bob, 18, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Horns
+  ctx.fillStyle = '#ffcc00';
+  ctx.beginPath();
+  ctx.moveTo(x - 15, y - 58 + bob);
+  ctx.lineTo(x - 25, y - 85 + bob);
+  ctx.lineTo(x - 8, y - 60 + bob);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 15, y - 58 + bob);
+  ctx.lineTo(x + 25, y - 85 + bob);
+  ctx.lineTo(x + 8, y - 60 + bob);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eyes (menacing)
+  ctx.fillStyle = '#ffff00';
+  ctx.beginPath();
+  ctx.ellipse(x - 12, y - 48 + bob, 6, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + 12, y - 48 + bob, 6, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Pupils
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(x - 12, y - 48 + bob, 2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + 12, y - 48 + bob, 2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nostrils (smoke)
   ctx.fillStyle = '#333';
-  ctx.fillRect(x - 40, y - 50, 80, 8);
-  ctx.fillStyle = '#ff3330';
-  const hpWidth = (boss.hp / boss.maxHp) * 80;
-  ctx.fillRect(x - 40, y - 50, hpWidth, 8);
+  ctx.beginPath();
+  ctx.arc(x - 5, y - 40 + bob, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + 5, y - 40 + bob, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Teeth
+  ctx.fillStyle = '#fff';
+  const teethY = y - 35 + bob;
+  for (let i = -3; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + i * 5 - 2, teethY);
+    ctx.lineTo(x + i * 5 + 2, teethY);
+    ctx.lineTo(x + i * 5, teethY + 6);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 function drawWizard() {
