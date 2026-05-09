@@ -278,17 +278,22 @@ let boss = null; // Added boss state
 let bossesDefeated = 0; // Track boss defeats for day/night transition
 let bossExplosions = []; // Big boss death effects
 let screenFlash = 0; // Screen flash effect
+let gameStartTime = 0; // ゲーム開始時間
+let clearTime = 0; // クリア時間
 // --- Credits ---
 let creditsStarted = false;
 let creditsOffset = 0;
 let creditsFinished = false;
 const CREDITS_SPEED = 30;
 const CREDITS_DATA = [
-  { role: '企画・制作', name: 'よっちゃん' },
-  { role: 'プログラミング', name: 'よっちゃん' },
-  { role: 'グラフィック', name: 'よっちゃん' },
-  { role: '音楽・効果音', name: 'よっちゃん' },
-  { role: 'スペシャルサンクス', name: 'みんなへ' },
+  { role: '企画・制作', name: 'くろっぱ' },
+  { role: 'プログラミング', name: 'AIさん' },
+  { role: 'グラフィック', name: 'AIさん' },
+  { role: '音楽・効果音', name: 'AIさん' },
+  { role: 'クリアタイム', name: '' },
+  { role: 'スペシャルサンクス', name: 'よっちゃん' },
+  { role: '', name: '' },
+  { role: 'company', name: 'Chlorosoft' },
 ];
 // --- Credits BGM ---
 let creditsBGMPlaying = false;
@@ -428,6 +433,8 @@ function startNewGame() {
   creditsStarted = false;
   creditsOffset = 0;
   creditsFinished = false;
+  clearTime = 0;
+  gameStartTime = performance.now();
   init();
 }
 
@@ -744,53 +751,81 @@ function drawDragon(x, y, bob) {
 
 function drawCredits(offset) {
   const centerX = canvas.width / 2;
-  // 画面下部（canvas.height + 200）からスタートして上にスクロール
-  const startY = canvas.height + 200 - offset;
+  // スクロールするクレジットの開始位置
+  const startY = canvas.height + 100 - offset;
+  // クレジットの全高さ
+  const creditsTotalHeight = 80 + CREDITS_DATA.length * 50;
+  // スクロールが終了したかどうか（最後のクレジットが画面の上を超えたか）
+  const creditsFinished = startY + creditsTotalHeight < -30;
 
-  // Title (only when on-screen)
-  if (startY > -60 && startY < canvas.height + 60) {
-    ctx.fillStyle = '#ffcc33';
-    ctx.font = 'bold 48px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('THE END', centerX, startY);
+  // Format clear time as MM:SS
+  const minutes = Math.floor(clearTime / 60);
+  const seconds = Math.floor(clearTime % 60);
+  const formattedTime = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
 
-    // Decorative line
-    ctx.strokeStyle = '#ffcc33';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centerX - 150, startY + 20);
-    ctx.lineTo(centerX + 150, startY + 20);
-    ctx.stroke();
-  }
-
-  // Credits entries
+  // Credits entries (スクロールする)
   ctx.font = '20px monospace';
   const lineHeight = 50;
   for (let i = 0; i < CREDITS_DATA.length; i++) {
     const entry = CREDITS_DATA[i];
-    const y = startY + 80 + i * lineHeight;
+    const y = startY + i * lineHeight;
     if (y < -30 || y > canvas.height + 60) continue;
+
+    // Skip blank entries (used for spacing)
+    if (entry.role === '' && entry.name === '') {
+      continue;
+    }
+
+    // Company name (Chlorosoft) - centered
+    if (entry.role === 'company') {
+      ctx.fillStyle = '#ffcc33';
+      ctx.font = 'bold 36px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(entry.name, centerX, y);
+      ctx.font = '20px monospace';
+      continue;
+    }
 
     // Role (left-aligned, smaller)
     ctx.fillStyle = '#aaa';
     ctx.textAlign = 'right';
     ctx.fillText(entry.role + ' :', centerX - 10, y);
 
-    // Name (right-aligned, larger, golden)
+    // Name (right-aligned, larger, golden) - or formatted time for clear time entry
+    let displayName = entry.name;
+    if (entry.role === 'クリアタイム') {
+      displayName = formattedTime;
+    }
     ctx.fillStyle = '#ffcc33';
     ctx.font = 'bold 28px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(entry.name, centerX + 10, y);
+    ctx.fillText(displayName, centerX + 10, y);
     ctx.font = '20px monospace';
   }
 
-  // Bottom message
-  const msgY = startY + 80 + CREDITS_DATA.length * lineHeight + 40;
-  if (msgY > -30 && msgY < canvas.height + 60) {
+  // スクロール終了後にTHE ENDとCLICK TO TITLEを表示
+  if (creditsFinished) {
+    // THE END は画面中央に固定
+    const theEndY = canvas.height / 2 - 60;
+    ctx.fillStyle = '#ffcc33';
+    ctx.font = 'bold 48px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('THE END', centerX, theEndY);
+
+    // Decorative line (THE ENDの下)
+    ctx.strokeStyle = '#ffcc33';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX - 150, theEndY + 20);
+    ctx.lineTo(centerX + 150, theEndY + 20);
+    ctx.stroke();
+
+    // CLICK TO TITLE は画面下部に固定
+    const clickToTitleY = canvas.height - 80;
     ctx.fillStyle = '#ffcc33';
     ctx.font = '18px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CLICK TO TITLE', centerX, msgY);
+    ctx.fillText('CLICK TO TITLE', centerX, clickToTitleY);
   }
 }
 
@@ -849,6 +884,17 @@ function drawHUD() {
   ctx.fillText(`WAVE ${level}`, canvas.width - 16, 30);
   ctx.textAlign = 'center';
   ctx.fillText('❤'.repeat(lives), canvas.width / 2, 30);
+  // タイム表示
+  if (started && !gameOver && gameStartTime > 0) {
+    const elapsed = (performance.now() - gameStartTime) / 1000;
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = Math.floor(elapsed % 60);
+    const timeStr = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`TIME ${timeStr}`, canvas.width - 16, 52);
+  }
 }
 
 // --- Update ---
@@ -989,6 +1035,8 @@ function update(dt) {
           boss.alive = false;
           gold += 100;
           bossesDefeated++;
+          // Calculate clear time
+          clearTime = (performance.now() - gameStartTime) / 1000;
           // Big boss explosion
           createBossExplosion(boss.x, boss.y + boss.h / 2, boss.isDragon);
           playBossDeath();
@@ -1394,10 +1442,10 @@ function render(time = 0) {
     creditsOffset += CREDITS_SPEED * creditsDt;
     // スタッフロールの最後の行が画面の下を超えたら終了
     const creditsTotalHeight = 100 + 80 + CREDITS_DATA.length * 50 + 40;
-    if (creditsOffset > canvas.height + 200 + creditsTotalHeight) {
+    if (creditsOffset > canvas.height + 100 + creditsTotalHeight) {
       creditsFinished = true;
       overlay.style.display = 'flex';
-      overlay.innerHTML = '<h1>THE END</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO TITLE</p>';
+      overlay.innerHTML = '<h1>THE END</h1><p>CLICK TO TITLE</p>';
     }
     drawTitleBackground(time / 1000, bossesDefeated / 3);
     // Draw wizard character during credits
