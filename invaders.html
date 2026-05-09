@@ -194,6 +194,7 @@ function playStageClear() {
 // --- Game State ---
 let monsters, bullets, explosions, player, gold, lives, level, gameOver, started, victory;
 let boss = null; // Added boss state
+let bossesDefeated = 0; // Track boss defeats for day/night transition
 const MONSTER_W = 32, MONSTER_H = 28;
 // ...
 const BULLET_W = 3, BULLET_H = 12;
@@ -266,6 +267,7 @@ function startNewGame() {
   lives = 3;
   gold = 0;
   victory = false;
+  bossesDefeated = 0;
   init();
 }
 
@@ -637,6 +639,7 @@ if (level >= 9) {
         if (boss.hp <= 0) {
           boss.alive = false;
           gold += 100;
+          bossesDefeated++;
 if (level >= 9) {
             gameOver = true;
             victory = true;
@@ -696,40 +699,99 @@ for (let i = 0; i < 40; i++) {
   });
 }
 
-function drawTitleBackground(time) {
-  // Night sky gradient
+function drawTitleBackground(time, brightness = 0) {
+  // brightness: 0 = deep night, 1 = morning
+  const isMorning = brightness >= 1;
+  const t = Math.min(brightness, 1);
+
+  // Sky gradient - night to morning
   const skyGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  skyGrad.addColorStop(0, '#0a0a2e');
-  skyGrad.addColorStop(0.5, '#1a1a4e');
-  skyGrad.addColorStop(0.75, '#2a3a5e');
-  skyGrad.addColorStop(1, '#1a2a1a');
+  if (isMorning) {
+    skyGrad.addColorStop(0, '#87CEEB');
+    skyGrad.addColorStop(0.5, '#B0E0E6');
+    skyGrad.addColorStop(0.75, '#E0F0FF');
+    skyGrad.addColorStop(1, '#90EE90');
+  } else {
+    const r0 = Math.round(10 + 137 * t);
+    const g0 = Math.round(10 + 157 * t);
+    const b0 = Math.round(46 + 204 * t);
+    const r1 = Math.round(26 + 142 * t);
+    const g1 = Math.round(26 + 166 * t);
+    const b1 = Math.round(78 + 180 * t);
+    const r2 = Math.round(42 + 184 * t);
+    const g2 = Math.round(58 + 197 * t);
+    const b2 = Math.round(94 + 217 * t);
+    const r3 = Math.round(26 + 158 * t);
+    const g3 = Math.round(42 + 184 * t);
+    const b3 = Math.round(26 + 144 * t);
+    skyGrad.addColorStop(0, `rgb(${r0},${g0},${b0})`);
+    skyGrad.addColorStop(0.5, `rgb(${r1},${g1},${b1})`);
+    skyGrad.addColorStop(0.75, `rgb(${r2},${g2},${b2})`);
+    skyGrad.addColorStop(1, `rgb(${r3},${g3},${b3})`);
+  }
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Stars
-  ctx.fillStyle = '#fff';
-  for (let i = 0; i < 80; i++) {
-    const sx = (i * 73 + 17) % canvas.width;
-    const sy = (i * 47 + 13) % (canvas.height * 0.6);
-    const twinkle = Math.sin(time * 2 + i) * 0.5 + 0.5;
-    ctx.globalAlpha = 0.3 + twinkle * 0.7;
-    const size = (i % 3 === 0) ? 2 : 1;
-    ctx.fillRect(sx, sy, size, size);
+  // Stars (fade out as brightness increases)
+  if (!isMorning) {
+    ctx.globalAlpha = Math.max(0, 1 - t * 2.5);
+    ctx.fillStyle = '#fff';
+    for (let i = 0; i < 80; i++) {
+      const sx = (i * 73 + 17) % canvas.width;
+      const sy = (i * 47 + 13) % (canvas.height * 0.6);
+      const twinkle = Math.sin(time * 2 + i) * 0.5 + 0.5;
+      ctx.globalAlpha = Math.max(0, (0.3 + twinkle * 0.7) * (1 - t * 2.5));
+      const size = (i % 3 === 0) ? 2 : 1;
+      ctx.fillRect(sx, sy, size, size);
+    }
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
 
-  // Moon
-  ctx.fillStyle = '#ffffcc';
-  ctx.beginPath();
-  ctx.arc(650, 80, 35, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#0a0a2e';
-  ctx.beginPath();
-  ctx.arc(640, 75, 30, 0, Math.PI * 2);
-  ctx.fill();
+  // Sun (rises as brightness increases)
+  if (isMorning || t > 0.3) {
+    const sunAlpha = Math.min(1, (t - 0.3) * 2);
+    const sunY = Math.max(30, 120 - t * 90);
+    ctx.globalAlpha = sunAlpha;
+    // Sun glow
+    const sunGlow = ctx.createRadialGradient(650, sunY, 10, 650, sunY, 80);
+    sunGlow.addColorStop(0, 'rgba(255,220,100,0.6)');
+    sunGlow.addColorStop(1, 'rgba(255,220,100,0)');
+    ctx.fillStyle = sunGlow;
+    ctx.beginPath();
+    ctx.arc(650, sunY, 80, 0, Math.PI * 2);
+    ctx.fill();
+    // Sun body
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(650, sunY, 35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Moon (fades out as brightness increases)
+  if (t < 0.7) {
+    const moonAlpha = Math.max(0, 1 - (t - 0.3) * 3.3);
+    ctx.globalAlpha = moonAlpha;
+    ctx.fillStyle = '#ffffcc';
+    ctx.beginPath();
+    ctx.arc(650, 80, 35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = isMorning ? '#87CEEB' : '#0a0a2e';
+    ctx.beginPath();
+    ctx.arc(640, 75, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
   // Clouds (slow drift)
-  ctx.fillStyle = 'rgba(40, 40, 80, 0.5)';
+  if (isMorning) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+  } else if (t > 0.5) {
+    const a = Math.round(40 + 215 * (t - 0.5));
+    ctx.fillStyle = `rgba(${a},${a},${a},0.5)`;
+  } else {
+    ctx.fillStyle = 'rgba(40, 40, 80, 0.5)';
+  }
   for (let i = 0; i < 3; i++) {
     const cx = ((i * 300 + time * (10 + i * 5)) % (canvas.width + 200)) - 100;
     const cy = 60 + i * 40;
@@ -742,7 +804,14 @@ function drawTitleBackground(time) {
   }
 
   // Far mountains
-  ctx.fillStyle = '#1a2a3a';
+  if (isMorning) {
+    ctx.fillStyle = '#6B8E9E';
+  } else {
+    const mr = Math.round(26 + 105 * t);
+    const mg = Math.round(42 + 100 * t);
+    const mb = Math.round(58 + 62 * t);
+    ctx.fillStyle = `rgb(${mr},${mg},${mb})`;
+  }
   ctx.beginPath();
   ctx.moveTo(0, canvas.height * 0.65);
   for (let x = 0; x <= canvas.width; x += 40) {
@@ -754,7 +823,14 @@ function drawTitleBackground(time) {
   ctx.fill();
 
   // Near mountains
-  ctx.fillStyle = '#15201a';
+  if (isMorning) {
+    ctx.fillStyle = '#4A7A5A';
+  } else {
+    const nr = Math.round(21 + 100 * t);
+    const ng = Math.round(32 + 100 * t);
+    const nb = Math.round(26 + 74 * t);
+    ctx.fillStyle = `rgb(${nr},${ng},${nb})`;
+  }
   ctx.beginPath();
   ctx.moveTo(0, canvas.height * 0.7);
   for (let x = 0; x <= canvas.width; x += 30) {
@@ -767,7 +843,33 @@ function drawTitleBackground(time) {
 
   // Castle silhouette (right side)
   const cx = 600, cy = canvas.height * 0.62;
-  ctx.fillStyle = '#0a0a15';
+  if (isMorning) {
+    ctx.fillStyle = '#8B8682';
+    ctx.fillRect(cx, cy - 40, 80, 40);
+    ctx.fillRect(cx - 15, cy - 60, 20, 60);
+    ctx.fillRect(cx + 75, cy - 60, 20, 60);
+    ctx.beginPath();
+    ctx.moveTo(cx - 15, cy - 60);
+    ctx.lineTo(cx - 5, cy - 80);
+    ctx.lineTo(cx + 5, cy - 60);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 75, cy - 60);
+    ctx.lineTo(cx + 85, cy - 80);
+    ctx.lineTo(cx + 95, cy - 60);
+    ctx.closePath();
+    ctx.fill();
+    for (let i = 0; i < 5; i++) {
+      ctx.fillRect(cx + i * 18, cy - 48, 10, 8);
+    }
+    // Warm window light
+    ctx.fillStyle = '#FFD700';
+    ctx.globalAlpha = 0.6 + Math.sin(time * 2) * 0.2;
+    ctx.fillRect(cx + 35, cy - 30, 10, 14);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.fillStyle = '#0a0a15';
   // Main body
   ctx.fillRect(cx, cy - 40, 80, 40);
   // Towers
@@ -795,14 +897,29 @@ function drawTitleBackground(time) {
   ctx.globalAlpha = 0.5 + Math.sin(time * 3) * 0.3;
   ctx.fillRect(cx + 35, cy - 30, 10, 14);
   ctx.globalAlpha = 1;
+  }
 
   // Trees (left side)
   function drawTree(tx, ty, scale) {
-    ctx.fillStyle = '#0a150a';
+    if (isMorning) {
+      ctx.fillStyle = '#2d5a1e';
+    } else {
+      const tr = Math.round(10 + 45 * t);
+      const tg = Math.round(21 + 60 * t);
+      const tb = Math.round(10 + 10 * t);
+      ctx.fillStyle = `rgb(${tr},${tg},${tb})`;
+    }
     // Trunk
     ctx.fillRect(tx - 3 * scale, ty - 20 * scale, 6 * scale, 20 * scale);
     // Foliage layers
-    ctx.fillStyle = '#0f1f0f';
+    if (isMorning) {
+      ctx.fillStyle = '#3a7a2a';
+    } else {
+      const fr = Math.round(15 + 50 * t);
+      const fg = Math.round(31 + 80 * t);
+      const fb = Math.round(15 + 15 * t);
+      ctx.fillStyle = `rgb(${fr},${fg},${fb})`;
+    }
     ctx.beginPath();
     ctx.moveTo(tx, ty - 50 * scale);
     ctx.lineTo(tx - 18 * scale, ty - 15 * scale);
@@ -821,24 +938,47 @@ function drawTitleBackground(time) {
   drawTree(200, canvas.height * 0.73, 1.0);
 
   // Ground
-  ctx.fillStyle = '#1a2a15';
+  if (isMorning) {
+    ctx.fillStyle = '#4a8a3a';
+  } else {
+    const gr = Math.round(26 + 130 * t);
+    const gg = Math.round(42 + 118 * t);
+    const gb = Math.round(21 + 30 * t);
+    ctx.fillStyle = `rgb(${gr},${gg},${gb})`;
+  }
   ctx.fillRect(0, canvas.height * 0.72, canvas.width, canvas.height * 0.28);
 
   // Grass tufts
-  ctx.fillStyle = '#1a3a15';
+  if (isMorning) {
+    ctx.fillStyle = '#5aaa4a';
+  } else {
+    const gr2 = Math.round(26 + 130 * t);
+    const gg2 = Math.round(58 + 90 * t);
+    const gb2 = Math.round(21 + 15 * t);
+    ctx.fillStyle = `rgb(${gr2},${gg2},${gb2})`;
+  }
   for (let i = 0; i < 120; i++) {
     const gx = (i * 67 + 13) % canvas.width;
     const gy = canvas.height * 0.74 + (i * 43 + 17) % (canvas.height * 0.24);
     ctx.fillRect(gx, gy, 3, 4);
   }
 
-  // Fireflies / magic particles
+  // Fireflies / morning butterflies
   for (const p of titleParticles) {
-    const glow = Math.sin(time * p.speed * 5 + p.phase) * 0.5 + 0.5;
-    ctx.fillStyle = `rgba(200, 255, 100, ${glow * 0.7})`;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fill();
+    if (isMorning) {
+      // Butterflies
+      const wing = Math.sin(time * 8 + p.phase) * 0.5 + 0.5;
+      ctx.fillStyle = `rgba(255, ${150 + Math.floor(p.speed * 100)}, ${100 + Math.floor(p.r * 50)}, ${wing * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, p.r * 3 * wing, p.r, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const glow = Math.sin(time * p.speed * 5 + p.phase) * 0.5 + 0.5;
+      ctx.fillStyle = `rgba(200, 255, 100, ${glow * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
     // Move slowly
     p.y -= p.speed * 0.5;
     p.x += Math.sin(time + p.phase) * 0.2;
@@ -848,9 +988,10 @@ function drawTitleBackground(time) {
   }
 
   // Vignette
+  const vigAlpha = isMorning ? 0.15 : 0.6;
   const vigGrad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height*0.3, canvas.width/2, canvas.height/2, canvas.height*0.8);
   vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
-  vigGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
+  vigGrad.addColorStop(1, `rgba(0,0,0,${vigAlpha})`);
   ctx.fillStyle = vigGrad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
@@ -859,8 +1000,9 @@ function drawTitleBackground(time) {
 function render(time = 0) {
   const t = time / 1000;
 
-  // RPG night background (used for both title and gameplay)
-  drawTitleBackground(t);
+  // Background with day/night transition
+  const brightness = bossesDefeated / 3;
+  drawTitleBackground(t, brightness);
 
   if (!started) return;
 
