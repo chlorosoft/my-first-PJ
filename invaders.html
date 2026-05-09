@@ -282,7 +282,7 @@ let screenFlash = 0; // Screen flash effect
 let creditsStarted = false;
 let creditsOffset = 0;
 let creditsFinished = false;
-const CREDITS_SPEED = 80;
+const CREDITS_SPEED = 30;
 const CREDITS_DATA = [
   { role: '企画・制作', name: 'よっちゃん' },
   { role: 'プログラミング', name: 'よっちゃん' },
@@ -290,6 +290,66 @@ const CREDITS_DATA = [
   { role: '音楽・効果音', name: 'よっちゃん' },
   { role: 'スペシャルサンクス', name: 'みんなへ' },
 ];
+// --- Credits BGM ---
+let creditsBGMPlaying = false;
+let creditsBGMTimer = null;
+let creditsBGMNodes = [];
+
+function stopCreditsBGM() {
+  creditsBGMPlaying = false;
+  if (creditsBGMTimer) clearTimeout(creditsBGMTimer);
+  for (const n of creditsBGMNodes) { try { n.stop(); } catch(e) {} }
+  creditsBGMNodes = [];
+}
+
+const creditsMelodyNotes = mmlToNotes("E5 4 G5 4 C5 4 E5 4 A4 4 C5 4 D5 4 E5 4 G4 4 A4 4 C5 4 E5 4 D5 4 C5 4");
+const creditsBassNotes  = mmlToNotes("A4 4 E4 4 A4 4 E4 4 F4 4 C4 4 F4 4 C4 4 D4 4 A3 4 D4 4 A3 4 G4 4 E4 4 G4 4 E4 4");
+
+function playCreditsBGM() {
+  if (creditsBGMPlaying) return;
+  ensureAudio();
+  creditsBGMPlaying = true;
+  const bpm = 120;
+  const beatDur = 60 / bpm;
+
+  function schedulePhrase(startTime, notes, isBass) {
+    let t = startTime;
+    for (const n of notes) {
+      const dur = n.d * beatDur;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      if (isBass) {
+        osc.type = 'triangle';
+        gain.gain.setValueAtTime(0.1, t);
+        gain.gain.setValueAtTime(0.1, t + dur * 0.8);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      } else {
+        osc.type = 'square';
+        gain.gain.setValueAtTime(0.05, t);
+        gain.gain.setValueAtTime(0.05, t + dur * 0.7);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      }
+      osc.frequency.setValueAtTime(n.f, t);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + dur);
+      creditsBGMNodes.push(osc);
+      t += dur;
+    }
+    return t;
+  }
+
+  function loopBGM() {
+    if (!creditsBGMPlaying) return;
+    const now = audioCtx.currentTime + 0.1;
+    let endT = now;
+    endT = schedulePhrase(now, creditsMelodyNotes, false);
+    schedulePhrase(now, creditsBassNotes, true);
+    const loopDur = endT - now;
+    creditsBGMTimer = setTimeout(() => { if (creditsBGMPlaying) loopBGM(); }, loopDur * 1000);
+  }
+  loopBGM();
+}
 const MONSTER_W = 32, MONSTER_H = 28;
 // ...
 const BULLET_W = 3, BULLET_H = 12;
@@ -380,19 +440,23 @@ function handleOverlayTap() {
     playBGM();
     loop();
   } else if (gameOver) {
-    stopBGM();
+    if (victory && creditsFinished) {
+      stopCreditsBGM();
+      location.reload();
+      return;
+    }
     if (victory && !creditsFinished) {
       if (!creditsStarted) {
         // Start credits
         creditsStarted = true;
+        creditsOffset = 0;
+        lastRenderTime = performance.now();
         overlay.style.display = 'none';
+        playCreditsBGM();
       }
       return;
     }
-    if (victory && creditsFinished) {
-      location.reload();
-      return;
-    }
+    stopBGM();
     startNewGame();
     moveTimer = 0;
     shootTimer = 0;
@@ -682,19 +746,21 @@ function drawCredits(offset) {
   const centerX = canvas.width / 2;
   const startY = 100 - offset;
 
-  // Title
-  ctx.fillStyle = '#ffcc33';
-  ctx.font = 'bold 48px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('THE END', centerX, startY);
+  // Title (only when on-screen)
+  if (startY > -60 && startY < canvas.height + 60) {
+    ctx.fillStyle = '#ffcc33';
+    ctx.font = 'bold 48px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('THE END', centerX, startY);
 
-  // Decorative line
-  ctx.strokeStyle = '#ffcc33';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(centerX - 150, startY + 20);
-  ctx.lineTo(centerX + 150, startY + 20);
-  ctx.stroke();
+    // Decorative line
+    ctx.strokeStyle = '#ffcc33';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX - 150, startY + 20);
+    ctx.lineTo(centerX + 150, startY + 20);
+    ctx.stroke();
+  }
 
   // Credits entries
   ctx.font = '20px monospace';
@@ -702,7 +768,7 @@ function drawCredits(offset) {
   for (let i = 0; i < CREDITS_DATA.length; i++) {
     const entry = CREDITS_DATA[i];
     const y = startY + 80 + i * lineHeight;
-    if (y < -30 || y > canvas.height + 30) continue;
+    if (y < -30 || y > canvas.height + 60) continue;
 
     // Role (left-aligned, smaller)
     ctx.fillStyle = '#aaa';
@@ -719,7 +785,7 @@ function drawCredits(offset) {
 
   // Bottom message
   const msgY = startY + 80 + CREDITS_DATA.length * lineHeight + 40;
-  if (msgY < canvas.height + 30) {
+  if (msgY > -30 && msgY < canvas.height + 60) {
     ctx.fillStyle = '#ffcc33';
     ctx.font = '18px monospace';
     ctx.textAlign = 'center';
@@ -934,6 +1000,8 @@ if (level >= 9) {
             creditsOffset = 0;
             creditsFinished = false;
             overlay.style.display = 'none';
+            lastRenderTime = performance.now();
+            playCreditsBGM();
           } else {
             setTimeout(() => {
               level++;
@@ -1323,8 +1391,9 @@ function render(time = 0) {
   if (gameOver && creditsStarted && !creditsFinished) {
     const creditsDt = (time - lastRenderTime) / 1000;
     creditsOffset += CREDITS_SPEED * creditsDt;
-    const lastEntryY = 100 + 80 + CREDITS_DATA.length * 50 + 40 + creditsOffset;
-    if (lastEntryY > canvas.height + 100) {
+    // スタッフロールの最後の行が画面の下を超えたら終了
+    const creditsTotalHeight = 100 + 80 + CREDITS_DATA.length * 50 + 40;
+    if (creditsOffset > canvas.height + 200) {
       creditsFinished = true;
       overlay.style.display = 'flex';
       overlay.innerHTML = '<h1>THE END</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO TITLE</p>';
