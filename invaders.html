@@ -191,10 +191,105 @@ function playStageClear() {
   });
 }
 
+function playBossDeath() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  // Deep rumbling bass
+  for (let i = 0; i < 5; i++) {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sawtooth';
+    const t = now + i * 0.08;
+    o.frequency.setValueAtTime(150 - i * 20, t);
+    o.frequency.exponentialRampToValueAtTime(30, t + 0.8);
+    g.gain.setValueAtTime(0.25, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t); o.stop(t + 1.0);
+  }
+  // High crash
+  for (let i = 0; i < 8; i++) {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'square';
+    const t = now + i * 0.05;
+    o.frequency.setValueAtTime(800 + Math.random() * 1200, t);
+    o.frequency.exponentialRampToValueAtTime(100, t + 0.6);
+    g.gain.setValueAtTime(0.1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t); o.stop(t + 0.6);
+  }
+}
+
+function createBossExplosion(cx, cy, isDragon) {
+  const colors = isDragon
+    ? ['#ff0000', '#ff3300', '#ff6600', '#ff9900', '#ffcc00', '#ffff00', '#ffffff']
+    : ['#ffcc33', '#ff9933', '#ff6633', '#ff3333', '#ffffff'];
+  for (let i = 0; i < 60; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 50 + Math.random() * 250;
+    const size = 2 + Math.random() * 8;
+    bossExplosions.push({
+      x: cx,
+      y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      t: 0.5 + Math.random() * 1.0,
+      gravity: 100 + Math.random() * 150,
+      type: Math.random() < 0.3 ? 'ring' : 'spark',
+    });
+  }
+  // Shockwave rings
+  for (let i = 0; i < 3; i++) {
+    bossExplosions.push({
+      x: cx,
+      y: cy,
+      vx: 0,
+      vy: 0,
+      size: 5,
+      maxSize: 100 + i * 60,
+      color: isDragon ? '#ff3300' : '#ffcc33',
+      t: 0.8 - i * 0.15,
+      type: 'shockwave',
+    });
+  }
+  // Inner rings
+  for (let i = 0; i < 2; i++) {
+    bossExplosions.push({
+      x: cx,
+      y: cy,
+      vx: 0,
+      vy: 0,
+      size: 5,
+      maxSize: 60 + i * 40,
+      color: isDragon ? '#ffff00' : '#ffcc33',
+      t: 0.6 - i * 0.1,
+      type: 'ring',
+    });
+  }
+}
+
 // --- Game State ---
 let monsters, bullets, explosions, player, gold, lives, level, gameOver, started, victory;
 let boss = null; // Added boss state
 let bossesDefeated = 0; // Track boss defeats for day/night transition
+let bossExplosions = []; // Big boss death effects
+let screenFlash = 0; // Screen flash effect
+// --- Credits ---
+let creditsStarted = false;
+let creditsOffset = 0;
+let creditsFinished = false;
+const CREDITS_SPEED = 80;
+const CREDITS_DATA = [
+  { role: '企画・制作', name: 'よっちゃん' },
+  { role: 'プログラミング', name: 'よっちゃん' },
+  { role: 'グラフィック', name: 'よっちゃん' },
+  { role: '音楽・効果音', name: 'よっちゃん' },
+  { role: 'スペシャルサンクス', name: 'みんなへ' },
+];
 const MONSTER_W = 32, MONSTER_H = 28;
 // ...
 const BULLET_W = 3, BULLET_H = 12;
@@ -270,6 +365,9 @@ function startNewGame() {
   gold = 0;
   victory = false;
   bossesDefeated = 0;
+  creditsStarted = false;
+  creditsOffset = 0;
+  creditsFinished = false;
   init();
 }
 
@@ -283,7 +381,15 @@ function handleOverlayTap() {
     loop();
   } else if (gameOver) {
     stopBGM();
-    if (victory) {
+    if (victory && !creditsFinished) {
+      if (!creditsStarted) {
+        // Start credits
+        creditsStarted = true;
+        overlay.style.display = 'none';
+      }
+      return;
+    }
+    if (victory && creditsFinished) {
       location.reload();
       return;
     }
@@ -572,6 +678,55 @@ function drawDragon(x, y, bob) {
   }
 }
 
+function drawCredits(offset) {
+  const centerX = canvas.width / 2;
+  const startY = 100 - offset;
+
+  // Title
+  ctx.fillStyle = '#ffcc33';
+  ctx.font = 'bold 48px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('THE END', centerX, startY);
+
+  // Decorative line
+  ctx.strokeStyle = '#ffcc33';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(centerX - 150, startY + 20);
+  ctx.lineTo(centerX + 150, startY + 20);
+  ctx.stroke();
+
+  // Credits entries
+  ctx.font = '20px monospace';
+  const lineHeight = 50;
+  for (let i = 0; i < CREDITS_DATA.length; i++) {
+    const entry = CREDITS_DATA[i];
+    const y = startY + 80 + i * lineHeight;
+    if (y < -30 || y > canvas.height + 30) continue;
+
+    // Role (left-aligned, smaller)
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'right';
+    ctx.fillText(entry.role + ' :', centerX - 10, y);
+
+    // Name (right-aligned, larger, golden)
+    ctx.fillStyle = '#ffcc33';
+    ctx.font = 'bold 28px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(entry.name, centerX + 10, y);
+    ctx.font = '20px monospace';
+  }
+
+  // Bottom message
+  const msgY = startY + 80 + CREDITS_DATA.length * lineHeight + 40;
+  if (msgY < canvas.height + 30) {
+    ctx.fillStyle = '#ffcc33';
+    ctx.font = '18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CLICK TO TITLE', centerX, msgY);
+  }
+}
+
 function drawWizard() {
   const x = player.x, y = player.y;
 
@@ -668,14 +823,6 @@ function update(dt) {
     moveTimer = 0;
     const alive = monsters.filter(m => m.alive);
     if (alive.length === 0 && !boss) {
-if (level >= 9) {
-        gameOver = true;
-        victory = true;
-        stopBGM();
-        overlay.style.display = 'flex';
-        overlay.innerHTML = '<h1>VICTORY!</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO TITLE</p>';
-        return;
-      }
       level++;
       init();
       updateSpeeds();
@@ -775,12 +922,18 @@ if (level >= 9) {
           boss.alive = false;
           gold += 100;
           bossesDefeated++;
+          // Big boss explosion
+          createBossExplosion(boss.x, boss.y + boss.h / 2, boss.isDragon);
+          playBossDeath();
+          screenFlash = 0.5;
 if (level >= 9) {
             gameOver = true;
             victory = true;
             stopBGM();
-            overlay.style.display = 'flex';
-            overlay.innerHTML = '<h1>VICTORY!</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO TITLE</p>';
+            creditsStarted = true;
+            creditsOffset = 0;
+            creditsFinished = false;
+            overlay.style.display = 'none';
           } else {
             setTimeout(() => {
               level++;
@@ -800,6 +953,9 @@ if (level >= 9) {
         if (lives <= 0) {
           gameOver = true;
           stopBGM();
+          creditsStarted = false;
+          creditsOffset = 0;
+          creditsFinished = false;
           overlay.style.display = 'flex';
           overlay.innerHTML = '<h1>GAME OVER</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO RESTART</p>';
         }
@@ -812,6 +968,9 @@ if (level >= 9) {
     if (m.alive && m.y + MONSTER_H >= player.y) {
       gameOver = true;
       stopBGM();
+      creditsStarted = false;
+      creditsOffset = 0;
+      creditsFinished = false;
       overlay.style.display = 'flex';
       overlay.innerHTML = '<h1>GAME OVER</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO RESTART</p>';
     }
@@ -820,6 +979,25 @@ if (level >= 9) {
   // Explosion update
   for (const e of explosions) e.t -= dt;
   explosions = explosions.filter(e => e.t > 0);
+
+  // Boss explosion update
+  for (const e of bossExplosions) {
+    e.t -= dt;
+    if (e.type === 'spark') {
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+      e.vy += e.gravity * dt;
+      e.vx *= 0.98;
+    } else if (e.type === 'ring') {
+      e.size += (e.maxSize - e.size) * dt * 3;
+    } else if (e.type === 'shockwave') {
+      e.size += (e.maxSize - e.size) * dt * 2;
+    }
+  }
+  bossExplosions = bossExplosions.filter(e => e.t > 0);
+
+  // Screen flash decay
+  if (screenFlash > 0) screenFlash -= dt;
 }
 
 // --- Title Background (RPG scene) ---
@@ -1141,6 +1319,22 @@ function render(time = 0) {
 
   if (!started) return;
 
+  // Credits scroll and draw
+  if (gameOver && creditsStarted && !creditsFinished) {
+    const creditsDt = (time - lastRenderTime) / 1000;
+    creditsOffset += CREDITS_SPEED * creditsDt;
+    const lastEntryY = 100 + 80 + CREDITS_DATA.length * 50 + 40 + creditsOffset;
+    if (lastEntryY > canvas.height + 100) {
+      creditsFinished = true;
+      overlay.style.display = 'flex';
+      overlay.innerHTML = '<h1>THE END</h1><div class="subtitle">GOLD: ' + gold + '</div><p>CLICK TO TITLE</p>';
+    }
+    drawTitleBackground(time / 1000, bossesDefeated / 3);
+    drawCredits(creditsOffset);
+    return;
+  }
+  if (gameOver) return;
+
   for (const m of monsters) if (m.alive) drawMonster(m);
   if (boss && boss.alive) drawBoss(boss);
   drawWizard();
@@ -1181,6 +1375,39 @@ function render(time = 0) {
     ctx.stroke();
   }
 
+  // Boss explosion effects
+  for (const e of bossExplosions) {
+    const alpha = Math.max(0, e.t);
+    ctx.globalAlpha = alpha;
+    if (e.type === 'spark') {
+      // Glowing spark
+      ctx.fillStyle = e.color;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+      ctx.fill();
+      // Glow
+      ctx.fillStyle = e.color.replace(')', ',0.3)').replace('rgb', 'rgba');
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.size * 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.type === 'ring') {
+      // Expanding ring
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 3 * alpha;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (e.type === 'shockwave') {
+      // Shockwave ring
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 6 * alpha;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // Touch controls (semi-transparent circles)
   if (started && !gameOver) {
     const btnR = Math.min(canvas.width, canvas.height) * 0.1;
@@ -1215,6 +1442,13 @@ function render(time = 0) {
 
   drawHUD();
 
+  if (screenFlash > 0) {
+    ctx.globalAlpha = screenFlash;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
+  }
+
   if (gameOver) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1244,12 +1478,14 @@ function render(time = 0) {
 
 // --- Loop ---
 let lastTime = 0;
+let lastRenderTime = 0;
 function loop(time = 0) {
   const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
   update(dt);
   render(time);
-  if (!gameOver) requestAnimationFrame(loop);
+  lastRenderTime = time;
+  if (!gameOver || creditsStarted) requestAnimationFrame(loop);
 }
 
 // Title screen animation loop
