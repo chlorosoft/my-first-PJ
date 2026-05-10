@@ -821,7 +821,7 @@ function drawCredits(offset) {
     ctx.stroke();
 
     // CLICK TO TITLE は画面下部に固定
-    const clickToTitleY = canvas.height - 80;
+    const clickToTitleY = canvas.height - 120;
     ctx.fillStyle = '#ffcc33';
     ctx.font = '18px monospace';
     ctx.textAlign = 'center';
@@ -949,7 +949,7 @@ function update(dt) {
     }
     if (edge) {
       dir *= -1;
-      for (const m of alive) m.y += 20;
+      for (const m of alive) m.y += 30;
     } else {
       for (const m of alive) m.x += 12 * dir;
     }
